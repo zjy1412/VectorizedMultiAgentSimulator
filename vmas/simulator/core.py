@@ -2858,7 +2858,18 @@ class World(TorchVectorizedObject):
         return -torque, torque
 
     # integrate physical state
-    # uses semi-implicit euler with sub-stepping
+    # Uses semi-implicit Euler with sub-stepping.
+    #
+    # VMAS paper connection:
+    # - Linear update corresponds to Eq. (1): velocity is updated from forces, then position is
+    #   updated from the *new* velocity (semi-implicit / symplectic Euler).
+    # - Angular update corresponds to Eq. (3): angular velocity is updated from torque, then
+    #   rotation is updated from the *new* angular velocity.
+    #
+    # Implementation details:
+    # - `drag` (either per-entity or world-level) plays the role of damping (paper uses ζ).
+    # - The whole computation is vectorized across `batch_dim` environments; `substep` allows
+    #   smaller integration steps for stability when collisions are stiff.
     def _integrate_state(self, entity: Entity, substep: int):
         if entity.movable:
             # Compute translation

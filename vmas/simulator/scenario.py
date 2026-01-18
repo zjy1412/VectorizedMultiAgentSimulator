@@ -27,6 +27,14 @@ class BaseScenario(ABC):
 
     This is the class that scenarios inherit from.
 
+    Notes on vectorization (VMAS paper, Sec. 3: Scenario):
+    - VMAS simulates a *batch* of environments in parallel. The batch size is called
+      `batch_dim` (also referred to as `num_envs` in the environment wrapper).
+    - Scenario methods are expected to operate on *all environments at once*.
+      Concretely, tensors typically have leading dimension `batch_dim`.
+    - `env_index=None` in `reset_world_at()` means "reset all environments in the batch"
+      using vectorized operations.
+
     The methods that are **compulsory to instantiate** are:
 
     - :class:`make_world`
@@ -81,11 +89,15 @@ class BaseScenario(ABC):
 
     def env_make_world(self, batch_dim: int, device: torch.device, **kwargs) -> World:
         # Do not override
+        # This is called by the environment wrapper to construct the World once.
+        # The returned World must be vectorized with the provided `batch_dim`.
         self._world = self.make_world(batch_dim, device, **kwargs)
         return self._world
 
     def env_reset_world_at(self, env_index: typing.Optional[int]):
         # Do not override
+        # Environment wrapper calls this to reset either a single environment in the
+        # batch (`env_index` is an int) or all environments (`env_index=None`).
         self.world.reset(env_index)
         self.reset_world_at(env_index)
 
@@ -104,7 +116,7 @@ class BaseScenario(ABC):
         In this function the user should instantiate the world and insert agents and landmarks in it.
 
         Args:
-            batch_dim (int): the number of vecotrized environments.
+            batch_dim (int): The number of vectorized environments simulated in parallel.
             device (Union[str, int, torch.device], optional): the device of the environmemnt.
             kwargs (dict, optional): named arguments passed from environment creation
 
@@ -236,6 +248,10 @@ class BaseScenario(ABC):
 
         Implementors can access the world at :class:`world`.
 
+        In VMAS, observations are returned for *all environments* at once (vectorized batch).
+        The environment wrapper will call this once per agent per step and will clone the
+        returned tensors to avoid accidental in-place edits leaking across steps.
+
         To increase performance, torch tensors should be created with the device already set, like:
         ``torch.tensor(..., device=self.world.device)``
 
@@ -277,6 +293,10 @@ class BaseScenario(ABC):
         shape ``(self.world.batch_dim)`` and dtype ``torch.float``.
 
         Implementors can access the world at :class:`world`.
+
+        Note: rewards in VMAS are typically agent-wise; higher-level training code can
+        optionally aggregate them into a team reward (e.g., mean over agents) depending
+        on the MARL algorithm (CPPO/MAPPO/IPPO in the VMAS paper, Sec. 6).
 
         To increase performance, torch tensors should be created with the device already set, like:
         ``torch.tensor(..., device=self.world.device)``

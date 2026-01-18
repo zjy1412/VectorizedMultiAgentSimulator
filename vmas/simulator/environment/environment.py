@@ -50,6 +50,18 @@ def local_seed(vmas_random_state):
 class Environment(TorchVectorizedObject):
     """
     The VMAS environment
+
+    High-level data flow (VMAS paper, Sec. 3: Interface/Scenario/Core):
+    - The environment owns a vectorized :class:`~vmas.simulator.core.World` with `num_envs` parallel
+      simulations (batch dimension).
+    - Each `step()`:
+        1) Accepts actions for all agents across the batch (shape `[num_envs, act_dim]` per agent).
+        2) Lets the scenario post-process actions (`scenario.env_process_action`).
+        3) Steps the physics (`world.step()`), which integrates the state in a fully vectorized way.
+        4) Queries scenario-provided `observation/reward/done/info` to build the outputs.
+
+    This wrapper is intentionally lightweight: scenarios define the task, the world defines physics,
+    and the environment glues them together in a Gym-like API.
     """
 
     metadata = {
@@ -275,6 +287,7 @@ class Environment(TorchVectorizedObject):
 
         if get_rewards:
             for agent in self.agents:
+                # Scenario rewards are expected to be vectorized: shape [num_envs]
                 reward = self.scenario.reward(agent).clone()
                 if dict_agent_names:
                     rewards.update({agent.name: reward})
@@ -282,6 +295,8 @@ class Environment(TorchVectorizedObject):
                     rewards.append(reward)
         if get_observations:
             for agent in self.agents:
+                # Scenario observations are expected to be vectorized: shape [num_envs, obs_dim]
+                # or nested dicts with the same leading `num_envs` dimension.
                 observation = TorchUtils.recursive_clone(
                     self.scenario.observation(agent)
                 )
@@ -291,6 +306,7 @@ class Environment(TorchVectorizedObject):
                     obs.append(observation)
         if get_infos:
             for agent in self.agents:
+                # Info dict is user-defined and may contain extra metrics (e.g., shaped rewards).
                 info = TorchUtils.recursive_clone(self.scenario.info(agent))
                 if dict_agent_names:
                     infos.update({agent.name: info})
@@ -334,6 +350,13 @@ class Environment(TorchVectorizedObject):
             rewards: List on len 'self.n_agents' of which each element is a torch.Tensor of shape '(self.num_envs)'
             dones: Tensor of len 'self.num_envs' of which each element is a bool
             infos: List on len 'self.n_agents' of which each element is a dictionary for which each key is a metric and the value is a tensor of shape '(self.num_envs, metric_size_per_agent)'
+
+        Notes:
+        - VMAS is vectorized: the first dimension of every tensor corresponds to the environment
+          batch (`num_envs`).
+        - `dones` is per-environment, not per-agent. Algorithms that require per-agent termination
+          can combine `dones` with domain knowledge or use `terminated_truncated=True` for
+          separate termination/truncation flags.
 
         Examples:
             >>> import vmas

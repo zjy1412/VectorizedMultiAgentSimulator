@@ -5,6 +5,19 @@
 
 from __future__ import annotations
 
+"""
+Geometry helpers for VMAS's 2D physics engine.
+
+These functions are used by :class:`~vmas.simulator.core.World` to compute collision/contact
+information (closest points, intersections) between primitive shapes (sphere/box/line).
+
+Design notes:
+- All functions are written to work on *batched tensors* (vectorized across environments), so
+  a single call can process thousands of parallel simulations efficiently.
+- The collision force model itself lives in `vmas/simulator/core.py`; this module focuses on
+  purely geometric computations needed by that force model.
+"""
+
 import torch
 
 from vmas.simulator.utils import TorchUtils

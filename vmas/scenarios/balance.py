@@ -224,6 +224,9 @@ class Scenario(BaseScenario):
         is_first = agent == self.world.agents[0]
 
         if is_first:
+            # Reward is computed once per step (for the first agent) and then reused for all agents.
+            # This makes the scenario reward "team-shaped" (all agents share the same scalar reward),
+            # which aligns well with centralized training baselines.
             self.pos_rew[:] = 0
             self.ground_rew[:] = 0
 
@@ -234,6 +237,7 @@ class Scenario(BaseScenario):
 
             self.ground_rew[self.on_the_ground] = self.fall_reward
 
+            # Dense shaping: reward progress in transporting the package toward the goal.
             global_shaping = self.package_dist * self.shaping_factor
             self.pos_rew = self.global_shaping - global_shaping
             self.global_shaping = global_shaping
@@ -242,6 +246,11 @@ class Scenario(BaseScenario):
 
     def observation(self, agent: Agent):
         # get positions of all entities in this agent's reference frame
+        #
+        # Note (paper connection, Sec. 6 - Balance):
+        # This observation includes information that is effectively global (e.g., package-to-goal
+        # vector, line angular velocity/rotation). This makes Balance comparatively easier than
+        # scenarios where agents must infer global state from local sensing.
         return torch.cat(
             [
                 agent.state.pos,
@@ -258,6 +267,7 @@ class Scenario(BaseScenario):
         )
 
     def done(self):
+        # Episode ends if the package/line touches the floor (failure) or package overlaps goal (success).
         return self.on_the_ground + self.world.is_overlapping(
             self.package, self.package.goal
         )
